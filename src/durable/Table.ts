@@ -70,6 +70,7 @@ const RESERVED_CLOSE_CODES = new Set([1005, 1006, 1015]);
 
 const HELLO_TIMEOUT_MS = 5000;
 const DISCONNECT_MS = 120_000; // a disconnected player keeps the seat this long
+const MESSAGES_PER_SECOND = 20;
 const BET_MS = 15_000;
 const TURN_MS = 20_000;
 const RESULTS_MS = 6000;
@@ -497,14 +498,13 @@ export class Table extends DurableObject<Env> {
 
   // Returns the stack to the balance, then frees the seat. Safe to repeat (ref `cashout:<session>`).
   private async cashOut(row: SeatRow) {
-    if (row.stack > 0) {
-      await this.account(row.token_hash).settle(
-        row.stack,
-        "cashout",
-        `cashout:${row.session}`,
-        Date.now(),
-      ); // NO_ACCOUNT: the account is gone, so the chips go with it
-    }
+    // Also with an empty stack: the cash-out closes the account's open seat (which locks the name).
+    await this.account(row.token_hash).settle(
+      row.stack,
+      "cashout",
+      `cashout:${row.session}`,
+      Date.now(),
+    ); // NO_ACCOUNT: the account is gone, so the chips go with it
     this.ctx.storage.sql.exec(
       "DELETE FROM seat WHERE seat = ? AND session = ?",
       row.seat,
@@ -602,7 +602,25 @@ export class Table extends DurableObject<Env> {
     });
   }
 
+  // Per-connection counter, reset each second. Memory only: a hibernated socket had no traffic anyway.
+  private hits = new WeakMap<WebSocket, { start: number; count: number }>();
+
+  // True when the message must be dropped. The first one over the limit gets RATE_LIMITED.
+  private limited(ws: WebSocket) {
+    const now = Date.now();
+    let h = this.hits.get(ws);
+    if (!h || now - h.start >= 1000) {
+      h = { start: now, count: 0 };
+      this.hits.set(ws, h);
+    }
+    h.count++;
+    if (h.count === MESSAGES_PER_SECOND + 1)
+      send(ws, { t: "error", code: "RATE_LIMITED" });
+    return h.count > MESSAGES_PER_SECOND;
+  }
+
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer) {
+    if (this.limited(ws)) return;
     if (typeof raw !== "string" || raw.length > MAX_MESSAGE_BYTES) {
       send(ws, { t: "error", code: "BAD_REQUEST" });
       return;

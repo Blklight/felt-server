@@ -36,8 +36,12 @@ const api = async (path: string, init: RequestInit = {}, token?: string) =>
     .then((r) => r.json())) as { data: Record<string, unknown> };
 
 const signUp = async () =>
-  (await api("/v1/accounts", { method: "POST", body: "{}" })).data
-    .token as string;
+  (
+    await api("/v1/accounts", {
+      method: "POST",
+      body: JSON.stringify({ name: "Ana" }),
+    })
+  ).data.token as string;
 const balance = async (token: string) =>
   (await api("/v1/me", {}, token)).data.balance as number;
 
@@ -147,7 +151,7 @@ describe("poker over WebSocket", () => {
     expect(vs.you.legalActions).toEqual([]);
     // blinds are in front of the players, not yet in a pot
     expect(va.seats.map((s) => s.bet).sort()).toEqual(
-      [0, 0, 0, 0, 0, 0, 0, 25, 50].sort(),
+      [0, 0, 0, 0, 25, 50].sort(),
     );
     expect(va.pots).toEqual([]);
     for (const c of clients) c.ws.close();

@@ -36,6 +36,8 @@ const SCHEMA = `
     reason TEXT NOT NULL,
     ref TEXT NOT NULL UNIQUE
   );
+  -- one row per open table seat (buyin ref); a seated player cannot rename
+  CREATE TABLE IF NOT EXISTS session (ref TEXT PRIMARY KEY);
   CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts INTEGER NOT NULL,
@@ -154,13 +156,31 @@ export class Account extends DurableObject<Env> {
           ref,
         );
         sql.exec("UPDATE account SET balance = balance + ?", delta);
+        if (reason === "buyin") {
+          sql.exec("INSERT OR IGNORE INTO session (ref) VALUES (?)", ref);
+        } else {
+          sql.exec(
+            "DELETE FROM session WHERE ref = ?",
+            `buyin:${ref.slice("cashout:".length)}`,
+          );
+        }
       });
     }
     return { profile: this.profile() as Profile };
   }
 
-  update(patch: z.infer<typeof PatchMeBody>): Profile | null {
+  // While seated at any table the profile is frozen: returns the names of the fields that would change.
+  update(
+    patch: z.infer<typeof PatchMeBody>,
+  ): Profile | { locked: string[] } | null {
     if (!this.exists()) return null;
+    const current = this.profile() as Profile;
+    const seated =
+      this.ctx.storage.sql.exec("SELECT 1 FROM session").toArray().length > 0;
+    const locked = (Object.keys(patch) as (keyof typeof patch)[]).filter(
+      (k) => patch[k] !== undefined && patch[k] !== current[k],
+    );
+    if (seated && locked.length > 0) return { locked };
     const columns = {
       name: patch.name,
       avatar_id: patch.avatarId,
@@ -178,7 +198,7 @@ export class Account extends DurableObject<Env> {
 
   destroy(): void {
     this.ctx.storage.transactionSync(() => {
-      for (const table of ["account", "ledger", "history"]) {
+      for (const table of ["account", "ledger", "history", "session"]) {
         this.ctx.storage.sql.exec(`DELETE FROM ${table}`);
       }
     });

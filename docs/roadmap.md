@@ -26,7 +26,7 @@ Ordem de implementação. Cada passo liga uma parte do front (`felt-web`). Contr
 
 - [x] `hello` (token, versão do protocolo) → `welcome` + primeiro `view` em `phase: "waiting"`.
 - [x] Um `view` por jogador, com `seq`; espectador sem cartas fechadas.
-- [ ] `error` com os códigos do guia; limite de `MAX_MESSAGE_BYTES`.
+- [x] `error` com os códigos do guia; limite de `MAX_MESSAGE_BYTES`.
 - [x] Reconexão: mesmo token entra de novo, recebe o `welcome` e recupera o assento.
 
 ## 4. Sentar e sair
@@ -52,9 +52,9 @@ Ordem de implementação. Cada passo liga uma parte do front (`felt-web`). Contr
 
 - [x] **Teste de vazamento:** nenhum `view` contém carta fechada de outro jogador nem do baralho.
 - [x] RNG do servidor (`crypto.getRandomValues`) para baralho e sorteio de skin.
-- [ ] Rate limit por conexão.
-- [ ] Deploy: job `wrangler deploy` no CI com os secrets `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID`, e domínio `felt-api.blklight.dev`.
-- [ ] Script `sync-protocol` para copiar `src/protocol.ts` ao front.
+- [x] Rate limit por conexão (20 msg/s; a primeira acima do limite recebe `RATE_LIMITED`, o resto é descartado).
+- [x] Deploy: job `wrangler deploy` no CI com os secrets `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID`. Falta configurar os secrets no GitHub. Sem domínio próprio por enquanto (`blklight.dev` está no GitHub Pages): a API sobe em `felt-server.<subdomínio>.workers.dev`.
+- [x] Script `sync-protocol` (`bun run sync-protocol [destino]`) copia `src/protocol.ts` ao front; padrão `../felt-web/src/net/protocol.ts`.
 
 ## No front quando cada passo ficar pronto
 

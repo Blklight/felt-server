@@ -19,6 +19,7 @@ let lastToken = "";
 async function newRoom(): Promise<string> {
   const account = await exports.default.fetch(`${BASE}/v1/accounts`, {
     method: "POST",
+    body: JSON.stringify({ name: "Ana" }),
   });
   const { token } = ((await account.json()) as { data: { token: string } })
     .data;

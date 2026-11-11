@@ -36,8 +36,12 @@ const api = async (path: string, init: RequestInit = {}, token?: string) =>
     .then((r) => r.json())) as { data: Record<string, unknown> };
 
 const signUp = async () =>
-  (await api("/v1/accounts", { method: "POST", body: "{}" })).data
-    .token as string;
+  (
+    await api("/v1/accounts", {
+      method: "POST",
+      body: JSON.stringify({ name: "Ana" }),
+    })
+  ).data.token as string;
 
 const balance = async (token: string) =>
   (await api("/v1/me", {}, token)).data.balance as number;

@@ -26,7 +26,7 @@ export const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
 const name = z.string().trim().min(2).max(20);
 export const CreateAccountBody = z.object({
-  name: name.optional(),
+  name, // every player has a name from the start
   avatarId: z.enum(AVATAR_IDS).optional(),
 });
 export const PatchMeBody = z.object({
@@ -58,8 +58,8 @@ export const CreateRoomBody = z.object({
   config: z.record(z.string(), z.unknown()).optional(),
 });
 
-// Seats per game. Guide does not fix these; poker max is bounded by the protocol's seat index (0-9).
-export const SEATS = { poker: 9, blackjack: 5 } as const;
+// Seats per game. felt-web fixtures draw poker tables of 2-6 and blackjack of 5 seats.
+export const SEATS = { poker: 6, blackjack: 5 } as const;
 
 export type Profile = {
   playerId: string;

@@ -53,7 +53,7 @@ accounts.post("/v1/accounts", async (c) => {
     {
       playerId,
       tokenHash,
-      name: body.data.name ?? "Jogador",
+      name: body.data.name,
       avatarId: body.data.avatarId ?? "a1",
     },
     Date.now(),
@@ -81,7 +81,12 @@ accounts.patch("/v1/me", async (c) => {
   if (!body.success) {
     return c.json(fail("VALIDATION_ERROR", "", fieldErrors(body.error)), 400);
   }
-  return c.json(ok(await c.var.stub.update(body.data)));
+  const profile = await c.var.stub.update(body.data);
+  if (profile && "locked" in profile) {
+    const fields = Object.fromEntries(profile.locked.map((f) => [f, "locked"]));
+    return c.json(fail("VALIDATION_ERROR", "", fields), 409);
+  }
+  return c.json(ok(profile));
 });
 
 accounts.delete("/v1/me", async (c) => {

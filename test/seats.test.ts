@@ -264,3 +264,39 @@ describe("view leak", () => {
     bia.ws.close();
   });
 });
+
+describe("name lock", () => {
+  const rename = (token: string, body: unknown) =>
+    exports.default.fetch(`${BASE}/v1/me`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+  it("cannot edit the profile while seated; resending current values is fine; free after standing", async () => {
+    const { code, a } = await room();
+    const ana = await join(code, a.token);
+    ana.send({ t: "sit", seat: 0, buyIn: 300 });
+    await ana.next();
+
+    const locked = await rename(a.token, { name: "Novo" });
+    expect(locked.status).toBe(409);
+    expect(await locked.json()).toMatchObject({
+      error: { code: "VALIDATION_ERROR", fields: { name: "locked" } },
+    });
+    expect((await rename(a.token, { name: "Ana" })).status).toBe(200);
+    const skin = await rename(a.token, { skinId: "noir", avatarId: "a2" });
+    expect(skin.status).toBe(409);
+    expect(await skin.json()).toMatchObject({
+      error: { fields: { skinId: "locked", avatarId: "locked" } },
+    });
+    expect((await rename(a.token, { skinId: "classic" })).status).toBe(200); // unchanged
+
+    ana.send({ t: "stand" });
+    await ana.next();
+    expect(
+      (await rename(a.token, { name: "Novo", skinId: "noir" })).status,
+    ).toBe(200);
+    ana.ws.close();
+  });
+});

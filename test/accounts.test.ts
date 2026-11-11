@@ -16,7 +16,7 @@ const call = (path: string, init: RequestInit = {}, token?: string) =>
     },
   });
 
-async function signUp(body: unknown = {}) {
+async function signUp(body: unknown = { name: "Jogador" }) {
   const res = await call("/v1/accounts", {
     method: "POST",
     body: JSON.stringify(body),
@@ -81,10 +81,18 @@ describe("POST /v1/accounts", () => {
     });
   });
 
+  it("requires a name", async () => {
+    const res = await call("/v1/accounts", { method: "POST", body: "{}" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: { code: "VALIDATION_ERROR", fields: { name: "invalid" } },
+    });
+  });
+
   it("rejects an unknown avatar", async () => {
     const res = await call("/v1/accounts", {
       method: "POST",
-      body: JSON.stringify({ avatarId: "zz" }),
+      body: JSON.stringify({ name: "Ana", avatarId: "zz" }),
     });
     expect(await res.json()).toMatchObject({
       error: { fields: { avatarId: "invalid" } },

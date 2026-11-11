@@ -6,7 +6,7 @@ const BASE = "https://felt.test";
 async function token() {
   const res = await exports.default.fetch(`${BASE}/v1/accounts`, {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({ name: "Ana" }),
   });
   return ((await res.json()) as { data: { token: string } }).data.token;
 }
@@ -62,7 +62,7 @@ describe("GET /v1/rooms/:code", () => {
     const { code } = ((await res.json()) as { data: { code: string } }).data;
     const info = await exports.default.fetch(`${BASE}/v1/rooms/${code}`);
     expect(await info.json()).toEqual({
-      data: { code, game: "poker", seats: 9, taken: 0 },
+      data: { code, game: "poker", seats: 6, taken: 0 },
       error: null,
       message: "",
     });

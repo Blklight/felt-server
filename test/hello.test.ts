@@ -61,7 +61,7 @@ describe("hello", () => {
       you: { seat: null, legalActions: [] },
       buyIn: { min: 1000, max: 5000 }, // default blinds 25/50
     });
-    expect(msg.view.seats).toHaveLength(9);
+    expect(msg.view.seats).toHaveLength(6);
     for (const seat of msg.view.seats) {
       expect(seat).toMatchObject({ status: "empty", cards: [] });
     }
@@ -117,5 +117,24 @@ describe("hello", () => {
     });
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect(await closed).toBe(1008);
+  });
+});
+
+describe("rate limit", () => {
+  it("answers RATE_LIMITED past 20 messages per second and drops the rest", async () => {
+    const { ws, token, next } = await open();
+    ws.send(JSON.stringify({ t: "hello", v: 1, token }));
+    await next();
+    for (let i = 0; i < 40; i++)
+      ws.send(JSON.stringify({ t: "emote", id: "gg" }));
+    let echoes = 0;
+    let limited = false;
+    while (!limited) {
+      const m = (await next()) as { t: string; code?: string };
+      if (m.t === "echo") echoes++;
+      else limited = m.code === "RATE_LIMITED";
+    }
+    expect(echoes).toBe(19); // hello was the first of the 20
+    ws.close();
   });
 });
