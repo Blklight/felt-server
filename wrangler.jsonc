@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "felt-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-01",
+  "observability": { "enabled": true },
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:3000,https://felt.blklight.dev"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "TABLE", "class_name": "Table" },
+      { "name": "ACCOUNT", "class_name": "Account" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Table", "Account"] }]
+}
