@@ -15,7 +15,24 @@ function nextMessage(ws: WebSocket): Promise<unknown> {
   });
 }
 
-async function connect(code = "KQ7XZ", origin = "http://localhost:3000") {
+let lastToken = "";
+async function newRoom(): Promise<string> {
+  const account = await exports.default.fetch(`${BASE}/v1/accounts`, {
+    method: "POST",
+  });
+  const { token } = ((await account.json()) as { data: { token: string } })
+    .data;
+  lastToken = token;
+  const room = await exports.default.fetch(`${BASE}/v1/rooms`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ game: "blackjack" }),
+  });
+  return ((await room.json()) as { data: { code: string } }).data.code;
+}
+
+async function connect(code?: string, origin = "http://localhost:3000") {
+  code ??= await newRoom();
   const response = await exports.default.fetch(`${BASE}/v1/rooms/${code}/ws`, {
     headers: { Upgrade: "websocket", Origin: origin },
   });
@@ -52,12 +69,13 @@ describe("room WebSocket", () => {
   });
 
   it("requires a WebSocket upgrade", async () => {
-    const response = await exports.default.fetch(`${BASE}/v1/rooms/KQ7XZ/ws`);
+    const code = await newRoom();
+    const response = await exports.default.fetch(`${BASE}/v1/rooms/${code}/ws`);
     expect(response.status).toBe(426);
   });
 
   it("refuses an origin that is not allowed", async () => {
-    const response = await connect("KQ7XZ", "https://evil.example");
+    const response = await connect(undefined, "https://evil.example");
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
       error: { code: "FORBIDDEN_ORIGIN" },
@@ -78,11 +96,13 @@ describe("room WebSocket", () => {
   it("echoes a valid message back through the room", async () => {
     const ws = (await connect()).webSocket as WebSocket;
     ws.accept();
+    ws.send(JSON.stringify({ t: "hello", v: 1, token: lastToken }));
+    await nextMessage(ws);
     const reply = nextMessage(ws);
-    ws.send(JSON.stringify({ t: "sit", seat: 2, buyIn: 2000 }));
+    ws.send(JSON.stringify({ t: "emote", id: "gg" }));
     expect(await reply).toEqual({
       t: "echo",
-      message: { t: "sit", seat: 2, buyIn: 2000 },
+      message: { t: "emote", id: "gg" },
     });
     ws.close();
   });

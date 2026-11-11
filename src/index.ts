@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { accounts } from "./accounts";
 import type { Env } from "./env";
 import { fail, ok } from "./http";
 import { isRoomCode } from "./protocol";
+import { rooms } from "./rooms";
 
 export { Account } from "./durable/Account";
 export { Table } from "./durable/Table";
@@ -20,9 +22,12 @@ app.use("/v1/*", (c, next) =>
   })(c, next),
 );
 
+app.route("/", accounts);
+app.route("/", rooms);
+
 app.get("/health", (c) => c.json(ok({ ok: true })));
 
-app.get("/v1/rooms/:code/ws", (c) => {
+app.get("/v1/rooms/:code/ws", async (c) => {
   const code = c.req.param("code");
   if (!isRoomCode(code)) return c.json(fail("ROOM_NOT_FOUND"), 404);
   if (c.req.header("Upgrade") !== "websocket") {
@@ -33,6 +38,7 @@ app.get("/v1/rooms/:code/ws", (c) => {
     return c.json(fail("FORBIDDEN_ORIGIN"), 403);
   }
   const table = c.env.TABLE.get(c.env.TABLE.idFromName(code));
+  if (!(await table.info())) return c.json(fail("ROOM_NOT_FOUND"), 404);
   return table.fetch(c.req.raw);
 });
 
