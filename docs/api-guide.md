@@ -40,7 +40,7 @@ Autenticação: `Authorization: Bearer <token>`. **Não existe refresh**: o toke
 
 | Rota | Corpo | Resposta (`data`) |
 |---|---|---|
-| `POST /v1/accounts` | `{ name?, avatarId? }` | `{ playerId, token, profile }` |
+| `POST /v1/accounts` | `{ name, avatarId? }` | `{ playerId, token, profile }` |
 | `GET /v1/me` | — | `profile` |
 | `PATCH /v1/me` | `{ name?, avatarId?, skinId?, backId? }` | `profile` |
 | `DELETE /v1/me` | — | `null` (apaga conta, ledger e histórico) |
@@ -62,7 +62,7 @@ type CardBackVariant = "ink" | "neon" | "vice" | "suits";
 
 Validação (a mesma da UI, que só antecipa o erro; quem decide é o servidor):
 
-- `name`: sem espaços nas pontas, 2 a 20 caracteres, texto puro (sempre renderizado como texto).
+- `name`: **obrigatório na criação da conta** (todo jogador tem nome). Sem espaços nas pontas, 2 a 20 caracteres, texto puro (sempre renderizado como texto). Enquanto o jogador está sentado em alguma mesa o perfil inteiro fica congelado (nome, avatar, skin e verso): `PATCH /v1/me` com valor diferente do atual devolve `409` com `VALIDATION_ERROR` e `fields: { <campo>: "locked" }`. Reenviar o valor atual é aceito.
 - `avatarId`, `skinId`, `backId`: só valores das listas acima.
 
 **Token e código de recuperação.** O token tem 32 bytes aleatórios (`crypto.getRandomValues`) em base64url, sem padding: 43 caracteres, `^[A-Za-z0-9_-]{43}$`. O servidor guarda só o SHA-256. O código de recuperação que o jogador vê, copia e importa **é o próprio token**. Importar = o front troca o token guardado e chama `GET /v1/me`; `401` significa código inválido.
@@ -227,7 +227,7 @@ type LegalAction = {
 
 ### 4.4 Vazamento de cartas (crítico)
 
-- Cada jogador recebe o **seu** `view`. As cartas de outro jogador vêm como `"??"` até o showdown.
+- Cada jogador recebe o **seu** `view`. No poker, as cartas de outro jogador vêm como `"??"` até o showdown. No blackjack as cartas dos jogadores são abertas para todos (como numa mesa real); só a carta virada da banca é escondida.
 - A carta virada da banca vem como `"??"` até a banca jogar.
 - `result` e cartas reveladas só aparecem quando a regra permite.
 - Teste de propriedade obrigatório: o `view` de um assento **nunca** contém cartas fechadas de outro antes do showdown.
