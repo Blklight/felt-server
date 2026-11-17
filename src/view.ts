@@ -47,8 +47,14 @@ export const buyInRange = (config: RoomConfig) =>
     ? { min: config.blinds[1] * 20, max: config.blinds[1] * 100 }
     : { min: 200, max: 2000 };
 
-// Blackjack state as one viewer sees it. `secondsLeft` is relative to the moment of sending.
-export type Round = { game: Game; secondsLeft: number | null };
+// Blackjack state as one viewer sees it. `secondsLeft` is relative to the moment of sending;
+// `secondsTotal` is the full length of the running timer.
+export type Round = {
+  game: Game;
+  secondsLeft: number | null;
+  secondsTotal: number | null;
+  leaving: number[];
+};
 
 // The view one player gets (`viewer` null = spectator). This is the only place that decides who sees what.
 // Player cards are dealt face up (as at a real table); the deck never appears and the dealer's hole
@@ -83,6 +89,7 @@ function blackjackView(
         ? { outcome: hand.outcome }
         : {}),
       isTurn: game?.turn === i,
+      ...(round?.leaving.includes(i) ? { leaving: true as const } : {}),
     };
   });
   const hidden = game?.phase === "players" && game.dealer.length >= 2;
@@ -102,6 +109,9 @@ function blackjackView(
     boardBackId: (game?.board?.backId ?? creator.backId) as Creator["backId"],
     pots: [],
     secondsLeft: round?.secondsLeft ?? null,
+    ...(round?.secondsTotal != null
+      ? { secondsTotal: round.secondsTotal }
+      : {}),
     you: {
       seat: mine?.seat ?? null,
       legalActions:
@@ -120,8 +130,9 @@ function pokerView(
   taken: SeatInfo[],
   viewer: string | null,
   g: PokerGame,
-  secondsLeft: number | null,
+  timer: Pick<Round, "secondsLeft" | "secondsTotal" | "leaving">,
 ): TableView {
+  const { secondsLeft, secondsTotal, leaving } = timer;
   const mine = taken.find((s) => s.playerId === viewer);
   const idle = g.phase === "waiting" || g.phase === "showdown";
   const seats = Array.from({ length: SEATS.poker }, (_, i) => {
@@ -153,6 +164,7 @@ function pokerView(
         : {}),
       ...(g.phase !== "waiting" && g.bb === i ? { blind: "big" as const } : {}),
       isTurn: g.turn === i,
+      ...(leaving.includes(i) ? { leaving: true as const } : {}),
     };
   });
   const hand = mine ? bestHandOf(g, mine.seat) : undefined;
@@ -169,6 +181,7 @@ function pokerView(
         ? []
         : buildPots(g.players, true).map((pot) => pot.amount),
     secondsLeft,
+    ...(secondsTotal !== null ? { secondsTotal } : {}),
     you: {
       seat: mine?.seat ?? null,
       legalActions: mine ? pokerLegalActions(g, mine.seat) : [],
@@ -184,8 +197,7 @@ function pokerView(
 export type RoomState = {
   blackjack: Game;
   poker: PokerGame;
-  secondsLeft: number | null;
-};
+} & Pick<Round, "secondsLeft" | "secondsTotal" | "leaving">;
 
 export function tableView(
   config: RoomConfig,
@@ -195,9 +207,9 @@ export function tableView(
   state: RoomState,
 ): TableView {
   return config.game === "poker"
-    ? pokerView(config, creator, taken, viewer, state.poker, state.secondsLeft)
+    ? pokerView(config, creator, taken, viewer, state.poker, state)
     : blackjackView(config, creator, taken, viewer, {
+        ...state,
         game: state.blackjack,
-        secondsLeft: state.secondsLeft,
       });
 }

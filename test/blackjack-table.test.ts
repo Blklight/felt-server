@@ -12,6 +12,7 @@ type Seat = {
   stack: number;
   total?: number;
   outcome?: { kind: string; amount: number };
+  leaving?: boolean;
 };
 type View = {
   handId: number;
@@ -20,6 +21,7 @@ type View = {
   board: string[];
   dealerTotal?: number;
   secondsLeft: number | null;
+  secondsTotal?: number;
   you: {
     seat: number | null;
     legalActions: { type: string; min?: number; max?: number }[];
@@ -178,11 +180,24 @@ describe("blackjack over WebSocket", () => {
     spectator.ws.close();
   });
 
-  it("cannot stand mid-hand; stand ends it; the hole card is shown and chips settle", async () => {
+  it("standing mid-hand waits for the hand to end, then cashes out", async () => {
+    const { token, player, view } = await startRound();
+    expect(view.secondsTotal).toBe(20);
+    player.send({ t: "stand" });
+    const marked = (await player.next()).view as View;
+    expect(marked.you.seat).toBe(0);
+    expect(marked.seats[0]?.leaving).toBe(true);
+
+    player.send({ t: "action", action: { type: "stand" } });
+    const done = (await player.next()).view as View;
+    expect(done.you.seat).toBeNull();
+    expect([900, 1000, 1100, 1150]).toContain((await balance(token)) - 4000);
+    player.ws.close();
+  });
+
+  it("stand ends the hand; the hole card is shown and chips settle", async () => {
     const { code, token, player, view } = await startRound();
     expect(view.phase).toBe("players");
-    player.send({ t: "stand" });
-    expect((await player.next()).code).toBe("ILLEGAL_ACTION");
 
     player.send({ t: "action", action: { type: "stand" } });
     const done = (await player.next()).view as View;

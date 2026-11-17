@@ -10,6 +10,7 @@ type Seat = {
   bet: number;
   stack: number;
   status: string;
+  leaving?: boolean;
 };
 type View = {
   handId: number;
@@ -18,6 +19,7 @@ type View = {
   board: string[];
   pots: number[];
   secondsLeft: number | null;
+  secondsTotal?: number;
   you: {
     seat: number | null;
     legalActions: { type: string }[];
@@ -158,18 +160,27 @@ describe("poker over WebSocket", () => {
     spectator.ws.close();
   });
 
-  it("wrong player gets NOT_YOUR_TURN; leaving mid-hand is refused", async () => {
-    const { views, clients, spectator } = await table();
+  it("wrong player gets NOT_YOUR_TURN; leaving mid-hand waits for the hand to end", async () => {
+    const { views, clients, spectator, tokens } = await table();
+    expect(views[0].secondsTotal).toBe(30);
     const t = turnOf(views);
     const other = 1 - t;
-    (clients[other] as Client).send(action("check"));
-    expect(((await (clients[other] as Client).next()) as Msg).code).toBe(
-      "NOT_YOUR_TURN",
-    );
-    (clients[other] as Client).send({ t: "stand" });
-    expect(((await (clients[other] as Client).next()) as Msg).code).toBe(
-      "ILLEGAL_ACTION",
-    );
+    const [mover, leaver] = [clients[t] as Client, clients[other] as Client];
+    leaver.send(action("check"));
+    expect(((await leaver.next()) as Msg).code).toBe("NOT_YOUR_TURN");
+    leaver.send({ t: "stand" });
+    const marked = (await leaver.next()).view as View;
+    await mover.next();
+    await spectator.next();
+    expect(marked.you.seat).toBe(other);
+    expect(marked.seats[other]?.leaving).toBe(true);
+
+    mover.send(action("fold"));
+    const after = (await mover.next()).view as View;
+    expect(after.seats[other]?.status).toBe("empty");
+    expect(
+      (await balance(tokens[other] as string)) + (after.seats[t] as Seat).stack,
+    ).toBe(6000);
     for (const c of clients) c.ws.close();
     spectator.ws.close();
   });

@@ -78,8 +78,15 @@ const POKER_TURN_MS = 30_000;
 const SHOWDOWN_MS = 8000;
 const PENDING_RETRY_MS = 5000; // a buy-in that never finished is retried (idempotent) after this
 
-// The table state saved on every action (one upsert). `deadline` is the next game timer.
-type Snapshot = { game: Game; poker: PokerGame; deadline: number | null };
+// The table state saved on every action (one upsert). `deadline` is the next game timer, armed at `armedAt`.
+// `leaving` holds the seats that asked to stand mid-hand: they are cashed out as soon as the hand ends.
+type Snapshot = {
+  game: Game;
+  poker: PokerGame;
+  deadline: number | null;
+  armedAt: number | null;
+  leaving: number[];
+};
 
 type SeatRow = {
   seat: number;
@@ -171,15 +178,21 @@ export class Table extends DurableObject<Env> {
       backId: r.back_id,
       stack: r.stack,
     }));
-    const { game, poker, deadline } = this.snapshot();
+    const { game, poker, deadline, armedAt, leaving } = this.snapshot();
     const secondsLeft =
       deadline === null
         ? null
         : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    const secondsTotal =
+      deadline === null || armedAt === null
+        ? null
+        : Math.ceil((deadline - armedAt) / 1000);
     return tableView(room.config, room.creator, taken, id, {
       blackjack: game,
       poker,
       secondsLeft,
+      secondsTotal,
+      leaving,
     });
   }
 
@@ -191,6 +204,8 @@ export class Table extends DurableObject<Env> {
       game: newGame(),
       poker: newPokerGame(),
       deadline: null,
+      armedAt: null,
+      leaving: [],
       ...(row ? (JSON.parse(row.state) as Partial<Snapshot>) : {}),
     };
   }
@@ -206,10 +221,12 @@ export class Table extends DurableObject<Env> {
 
   // Saves the new game state, mirrors stacks into the seat rows and sets the next timer.
   private commit(
-    patch: Partial<Pick<Snapshot, "game" | "poker">>,
+    patch: Partial<Pick<Snapshot, "game" | "poker" | "leaving">>,
     deadline: number | null,
   ) {
-    const next: Snapshot = { ...this.snapshot(), ...patch, deadline };
+    const prev = this.snapshot();
+    const armedAt = deadline === prev.deadline ? prev.armedAt : Date.now();
+    const next: Snapshot = { ...prev, ...patch, deadline, armedAt };
     for (const h of [...next.game.hands, ...next.poker.players]) {
       this.ctx.storage.sql.exec(
         "UPDATE seat SET stack = ? WHERE seat = ? AND pending = 0",
@@ -257,9 +274,11 @@ export class Table extends DurableObject<Env> {
     return true;
   }
 
+  // Seats dealt into the next hand: bought in and not on their way out.
   private seated(rows: SeatRow[]) {
+    const { leaving } = this.snapshot();
     return rows
-      .filter((r) => !r.pending)
+      .filter((r) => !r.pending && !leaving.includes(r.seat))
       .map((r) => ({
         seat: r.seat,
         stack: r.stack,
@@ -286,6 +305,7 @@ export class Table extends DurableObject<Env> {
       const r = actPoker(snap.poker, row.seat, action);
       if ("error" in r) return error(r.error);
       this.commit({ poker: r.game }, this.freshDeadline(r.game.phase, now));
+      await this.cashOutLeavers();
       await this.rearm();
       this.broadcast();
       return;
@@ -323,8 +343,21 @@ export class Table extends DurableObject<Env> {
       { game },
       keep ? snap.deadline : this.freshDeadline(game.phase, now),
     );
+    await this.cashOutLeavers();
     await this.rearm();
     this.broadcast();
+  }
+
+  // Cashes out every seat that asked to leave and whose hand is over. True when anyone left.
+  private async cashOutLeavers(): Promise<boolean> {
+    const { leaving } = this.snapshot();
+    let left = false;
+    for (const row of this.seatRows()) {
+      if (!leaving.includes(row.seat) || this.inRound(row.seat)) continue;
+      await this.cashOut(row);
+      left = true;
+    }
+    return left;
   }
 
   // Runs the game timer when it is due: deal, auto-stand, or open the next betting round.
@@ -453,6 +486,7 @@ export class Table extends DurableObject<Env> {
       }
     }
     let changed = this.tickGame(now);
+    if (await this.cashOutLeavers()) changed = true;
     for (const row of this.seatRows()) {
       if (row.deadline === null || row.deadline > now) continue;
       if (row.pending) await this.finishSit(row.seat);
@@ -517,7 +551,11 @@ export class Table extends DurableObject<Env> {
     // keep the running timer unless the round moved on
     const same = game.phase === snap.game.phase && game.turn === snap.game.turn;
     this.commit(
-      { game, poker: removePokerSeat(snap.poker, row.seat) },
+      {
+        game,
+        poker: removePokerSeat(snap.poker, row.seat),
+        leaving: snap.leaving.filter((s) => s !== row.seat),
+      },
       same ? snap.deadline : this.freshDeadline(game.phase, Date.now()),
     );
   }
@@ -568,13 +606,18 @@ export class Table extends DurableObject<Env> {
     this.broadcast();
   }
 
+  // Mid-hand the seat only leaves once the hand ends (and is not dealt into the next one).
   private async stand(ws: WebSocket, playerId: string) {
     const row = this.seatRows().find((r) => r.player_id === playerId);
-    if (!row || row.pending || this.inRound(row.seat)) {
+    if (!row || row.pending) {
       send(ws, { t: "error", code: "ILLEGAL_ACTION" });
       return;
     }
-    await this.cashOut(row);
+    const snap = this.snapshot();
+    if (this.inRound(row.seat)) {
+      if (!snap.leaving.includes(row.seat))
+        this.commit({ leaving: [...snap.leaving, row.seat] }, snap.deadline);
+    } else await this.cashOut(row);
     await this.rearm();
     this.broadcast();
   }
